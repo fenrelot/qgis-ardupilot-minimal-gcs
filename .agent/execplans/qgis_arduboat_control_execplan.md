@@ -27,6 +27,7 @@ The first proof should be in ArduPilot SITL, which means Software-In-The-Loop si
 - [x] (2026-06-25 14:10 Europe/Vienna) Add Panasonic Toughbook / Blue Robotics BlueBoat deployment scripts, network checks, and real-hardware workflow documentation.
 - [x] (2026-06-25 17:05 Europe/Vienna) Write user documentation for Panasonic Toughbook / BlueBoat deployment and first real-hardware validation.
 - [x] (2026-06-25 17:20 Europe/Vienna) Add an operator quickstart that summarizes SITL startup, Toughbook/BlueBoat startup, and acceptance checks.
+- [x] (2026-06-25 17:35 Europe/Vienna) Add MIT license file and declare MIT in README and QGIS plugin metadata.
 - [ ] Validate end-to-end with Rover SITL, Mission Planner, bridge, and QGIS.
 
 ## Surprises & Discoveries
@@ -192,6 +193,8 @@ The next plugin usability milestone is to retain the operator-visible track. QGI
 The track/logging/arrow milestone is implemented. The plugin now creates an `ArduBoat Track` EPSG:4326 memory point layer from connected status samples, stores timestamp, mode, latitude, longitude, heading, and speed fields, and offers `Save track as...` with GeoPackage and ESRI Shapefile options. A checkable `Start text log` button prompts for a `.csv`/`.txt` path and appends timestamped location rows until stopped. The live `ArduBoat Live` marker now uses `assets/boat_arrow.svg` through `QgsSvgMarkerSymbolLayer`, with heading still data-defined from `heading_deg`.
 
 The Panasonic Toughbook / BlueBoat deployment milestone is implemented. The repository now includes a QGIS profile plugin installer, a BlueBoat bridge launcher defaulting to UDP 14552, a BlueBoat network checker for the `192.168.2.0/24` BaseStation network, an optional administrator firewall-rule helper, and a clean deployment bundle generator. User-facing docs describe copying the project to `C:\qgisarduboat`, installing dependencies and the QGIS plugin, configuring BlueOS MAVLink Endpoints to `udp://192.168.2.1:14552`, running the bridge, and validating status before command tests.
+
+The repository license is now MIT. `LICENSE` contains the standard MIT license text, `README.md` links to it, and the QGIS plugin metadata declares `license=MIT`.
 
 ## Context and Orientation
 

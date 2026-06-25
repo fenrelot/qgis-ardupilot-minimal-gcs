@@ -31,3 +31,5 @@ Useful commands from the repository root:
     .\scripts\install_qgis_plugin.ps1
     .\scripts\check_blueboat_network.ps1
     .\scripts\run_blueboat_bridge.ps1
+
+License: MIT. See `LICENSE`.

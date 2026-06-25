@@ -6,6 +6,7 @@ version=0.2.0
 qgisMinimumVersion=3.44
 author=QGIS ArduBoat Prototype
 email=
+license=MIT
 category=Plugins
 experimental=True
 deprecated=False
