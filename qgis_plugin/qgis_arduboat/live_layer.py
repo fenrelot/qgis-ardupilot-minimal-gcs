@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from qgis.PyQt.QtCore import QVariant
@@ -11,12 +12,14 @@ from qgis.core import (
     QgsPointXY,
     QgsProject,
     QgsProperty,
+    QgsSvgMarkerSymbolLayer,
     QgsSymbolLayer,
     QgsVectorLayer,
 )
 
 LAYER_NAME = "ArduBoat Live"
 FIELD_NAMES = ["name", "mode", "heading_deg", "ground_speed_m_s"]
+ARROW_SVG_PATH = Path(__file__).with_name("assets") / "boat_arrow.svg"
 
 
 class LiveBoatLayer:
@@ -84,15 +87,10 @@ class LiveBoatLayer:
             layer.updateFields()
 
     def _style_layer(self, layer: QgsVectorLayer) -> None:
-        symbol = QgsMarkerSymbol.createSimple(
-            {
-                "name": "triangle",
-                "color": "0,122,204",
-                "outline_color": "255,255,255",
-                "outline_width": "0.4",
-                "size": "6",
-            }
-        )
+        symbol = QgsMarkerSymbol()
+        svg_layer = QgsSvgMarkerSymbolLayer(str(ARROW_SVG_PATH))
+        svg_layer.setSize(8)
+        symbol.changeSymbolLayer(0, svg_layer)
         symbol_layer = symbol.symbolLayer(0)
         if symbol_layer is not None:
             symbol_layer.setDataDefinedProperty(
@@ -110,4 +108,3 @@ def _as_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
-

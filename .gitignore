@@ -4,6 +4,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 pytest-cache-files-*/
+pytest-temp/
 
 # Local QGIS and editor state
 *.qgz~

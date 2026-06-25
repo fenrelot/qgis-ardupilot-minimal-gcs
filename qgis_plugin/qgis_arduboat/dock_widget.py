@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import json
 from functools import partial
+from pathlib import Path
 from typing import Any
 
 from qgis.PyQt.QtCore import QTimer
 from qgis.PyQt.QtWidgets import (
+    QComboBox,
     QDockWidget,
+    QFileDialog,
     QFormLayout,
     QGridLayout,
     QGroupBox,
@@ -24,8 +27,12 @@ from .bridge_client import BridgeClient, BridgeClientError
 from .live_layer import LiveBoatLayer
 from .map_tools import SelectedTarget, TargetMapTool
 from .targeting import target_metrics
+from .track_layer import TrackExportError, TrackLayer, format_track_export_path
+from .track_log import TrackTextLogger, sample_from_status
 
 TARGET_CONFIRM_DISTANCE_M = 1000.0
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_LOG_DIR = REPO_ROOT / "logs"
 
 
 class ArduBoatDockWidget(QDockWidget):
@@ -34,6 +41,8 @@ class ArduBoatDockWidget(QDockWidget):
         self.iface = iface
         self.client = BridgeClient()
         self.live_layer = LiveBoatLayer()
+        self.track_layer = TrackLayer()
+        self.track_logger = TrackTextLogger()
         self.map_tool: TargetMapTool | None = None
         self.selected_target: SelectedTarget | None = None
         self.last_status: dict[str, Any] = {"connected": False}
@@ -52,6 +61,7 @@ class ArduBoatDockWidget(QDockWidget):
 
     def closeEvent(self, event) -> None:
         self.timer.stop()
+        self.track_logger.stop()
         self._deactivate_map_tool()
         super().closeEvent(event)
 
@@ -68,6 +78,7 @@ class ArduBoatDockWidget(QDockWidget):
         self._update_button_states()
         self.raw_status.setPlainText(json.dumps(status, indent=2, sort_keys=True))
         self.live_layer.update_from_status(status)
+        self._capture_track_sample(status)
         if self.iface is not None:
             canvas = self.iface.mapCanvas()
             if canvas is not None:
@@ -116,6 +127,7 @@ class ArduBoatDockWidget(QDockWidget):
         layout.addLayout(url_row)
 
         layout.addWidget(self._build_status_group())
+        layout.addWidget(self._build_track_group())
         layout.addWidget(self._build_target_group())
         layout.addWidget(self._build_command_group())
 
@@ -157,6 +169,41 @@ class ArduBoatDockWidget(QDockWidget):
             value.setTextInteractionFlags(value.textInteractionFlags())
             status_grid.addWidget(value, row, 1)
             self._labels[key] = value
+        return group
+
+    def _build_track_group(self) -> QGroupBox:
+        group = QGroupBox("Track")
+        layout = QVBoxLayout(group)
+
+        save_row = QHBoxLayout()
+        self.track_format_combo = QComboBox()
+        self.track_format_combo.addItem("GeoPackage (.gpkg)", "GPKG")
+        self.track_format_combo.addItem("ESRI Shapefile (.shp)", "ESRI Shapefile")
+        self.save_track_button = QPushButton("Save track as...")
+        self.save_track_button.clicked.connect(self._save_track)
+        self.clear_track_button = QPushButton("Clear track")
+        self.clear_track_button.clicked.connect(self._clear_track)
+        save_row.addWidget(self.track_format_combo, 1)
+        save_row.addWidget(self.save_track_button)
+        save_row.addWidget(self.clear_track_button)
+        layout.addLayout(save_row)
+
+        log_row = QHBoxLayout()
+        self.text_log_button = QPushButton("Start text log")
+        self.text_log_button.setCheckable(True)
+        self.text_log_button.toggled.connect(self._toggle_text_log)
+        log_row.addWidget(self.text_log_button)
+        layout.addLayout(log_row)
+
+        form = QFormLayout()
+        self.track_count_label = QLabel("0")
+        form.addRow("Samples", self.track_count_label)
+        self.text_log_status = QLabel("off")
+        self.text_log_status.setWordWrap(True)
+        form.addRow("Text log", self.text_log_status)
+        layout.addLayout(form)
+
+        self._update_track_fields()
         return group
 
     def _build_target_group(self) -> QGroupBox:
@@ -308,6 +355,101 @@ class ArduBoatDockWidget(QDockWidget):
             button.setEnabled(connected)
         self.send_target_button.setEnabled(connected and has_target)
         self.send_target_guided_button.setEnabled(connected and has_target)
+        self._update_track_fields()
+
+    def _capture_track_sample(self, status: dict[str, Any]) -> None:
+        sample = sample_from_status(status)
+        if sample is None:
+            return
+        try:
+            self.track_layer.append_sample(sample)
+        except Exception as exc:
+            self.last_warning.setText(f"Track update failed: {exc}")
+            return
+        if self.track_logger.is_active:
+            try:
+                self.track_logger.append(sample)
+            except OSError as exc:
+                self.track_logger.stop()
+                self.text_log_button.setChecked(False)
+                self.last_warning.setText(f"Text log stopped: {exc}")
+        self._update_track_fields()
+
+    def _save_track(self) -> None:
+        DEFAULT_LOG_DIR.mkdir(parents=True, exist_ok=True)
+        driver_name = str(self.track_format_combo.currentData())
+        if driver_name == "GPKG":
+            file_filter = "GeoPackage (*.gpkg)"
+            default_path = DEFAULT_LOG_DIR / "arduboat_track.gpkg"
+        else:
+            file_filter = "ESRI Shapefile (*.shp)"
+            default_path = DEFAULT_LOG_DIR / "arduboat_track.shp"
+
+        path, _selected_filter = QFileDialog.getSaveFileName(
+            self,
+            "Save ArduBoat track",
+            str(default_path),
+            file_filter,
+        )
+        if not path:
+            return
+        path = format_track_export_path(path, driver_name)
+        try:
+            self.track_layer.export_to(path, driver_name)
+        except TrackExportError as exc:
+            self.last_warning.setText(f"Track save failed: {exc}")
+            return
+        self.last_warning.setText(f"Track saved: {path}")
+
+    def _clear_track(self) -> None:
+        self.track_layer.clear()
+        self._update_track_fields()
+        self.last_warning.setText("Track cleared")
+
+    def _toggle_text_log(self, checked: bool) -> None:
+        if checked:
+            self._start_text_log()
+        else:
+            self._stop_text_log()
+
+    def _start_text_log(self) -> None:
+        DEFAULT_LOG_DIR.mkdir(parents=True, exist_ok=True)
+        default_path = DEFAULT_LOG_DIR / "arduboat_location_log.csv"
+        path, _selected_filter = QFileDialog.getSaveFileName(
+            self,
+            "Start text location log",
+            str(default_path),
+            "CSV text (*.csv);;Text files (*.txt);;All files (*.*)",
+        )
+        if not path:
+            self.text_log_button.setChecked(False)
+            return
+        if "." not in Path(path).name:
+            path = f"{path}.csv"
+        try:
+            self.track_logger.start(path)
+        except OSError as exc:
+            self.text_log_button.setChecked(False)
+            self.last_warning.setText(f"Text log start failed: {exc}")
+            return
+        self.text_log_button.setText("Stop text log")
+        self.text_log_status.setText(str(self.track_logger.path))
+        self.last_warning.setText("Text location logging started")
+
+    def _stop_text_log(self) -> None:
+        was_active = self.track_logger.is_active
+        self.track_logger.stop()
+        self.text_log_button.setText("Start text log")
+        self.text_log_status.setText("off")
+        if was_active:
+            self.last_warning.setText("Text location logging stopped")
+
+    def _update_track_fields(self) -> None:
+        count = self.track_layer.sample_count()
+        self.track_count_label.setText(str(count))
+        has_samples = count > 0
+        self.save_track_button.setEnabled(has_samples)
+        self.clear_track_button.setEnabled(has_samples)
 
     def _send_mode(self, mode: str) -> None:
         try:

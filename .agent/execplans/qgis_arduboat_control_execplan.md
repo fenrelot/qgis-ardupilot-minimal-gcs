@@ -23,7 +23,10 @@ The first proof should be in ArduPilot SITL, which means Software-In-The-Loop si
 - [x] (2026-06-25 08:14 Europe/Vienna) Implement map click and active vector-layer target picking with CRS conversion to WGS84.
 - [x] (2026-06-25 08:14 Europe/Vienna) Implement bridge-backed mode buttons: MANUAL, HOLD, LOITER, GUIDED, AUTO.
 - [x] (2026-06-25 08:14 Europe/Vienna) Implement `Send target` and `Send target + GUIDED` plugin commands through the bridge guided-target API.
-- [ ] Write user documentation for SITL and real boat telemetry-split workflows.
+- [x] (2026-06-25 10:30 Europe/Vienna) Add QGIS-side track capture/export, operator-controlled text location logging, and a clearer arrow boat marker.
+- [x] (2026-06-25 14:10 Europe/Vienna) Add Panasonic Toughbook / Blue Robotics BlueBoat deployment scripts, network checks, and real-hardware workflow documentation.
+- [x] (2026-06-25 17:05 Europe/Vienna) Write user documentation for Panasonic Toughbook / BlueBoat deployment and first real-hardware validation.
+- [x] (2026-06-25 17:20 Europe/Vienna) Add an operator quickstart that summarizes SITL startup, Toughbook/BlueBoat startup, and acceptance checks.
 - [ ] Validate end-to-end with Rover SITL, Mission Planner, bridge, and QGIS.
 
 ## Surprises & Discoveries
@@ -81,6 +84,18 @@ The first proof should be in ArduPilot SITL, which means Software-In-The-Loop si
 
 - Observation: A headless Qt dock-widget smoke test can construct the `ArduBoat Control` dock without opening QGIS, but the standalone QGIS Python process prints font-prefix warnings in this shell.
   Evidence: The smoke test printed `ArduBoat Control False False`, confirming the dock constructed and target-send buttons were disabled while disconnected, followed by `Could not find platform independent libraries <prefix>` and `QFontDatabase: Cannot find font directory /fonts` warnings while still exiting 0.
+
+- Observation: Mission Planner may already bind UDP port 14551 on Windows, preventing the bridge from listening on its default MAVLink input port.
+  Evidence: `.\scripts\run_bridge.ps1` failed with `PermissionError: [WinError 10013]`; `netstat -ano -p udp | Select-String ':14551'` showed PID 1776 bound to `0.0.0.0:14551`, and `Get-Process` identified PID 1776 as `MissionPlanner.exe`.
+
+- Observation: Headless QGIS validation can export the track layer to ESRI Shapefile in this sandbox, but GeoPackage export from the standalone headless process hits SQLite disk I/O errors here.
+  Evidence: The QGIS smoke test reported `export_exists True` for a Shapefile under `tmp/`, while the equivalent GeoPackage attempt failed with `sqlite3_exec(COMMIT) failed: disk I/O error`. This appears tied to the managed sandbox and standalone QGIS environment; the plugin still exposes GeoPackage for normal QGIS GUI use.
+
+- Observation: Blue Robotics BlueBoat uses the `192.168.2.0/24` topside network by default, with the operator computer configured as `192.168.2.1` and BlueOS reachable at `192.168.2.2` or `blueos.local`.
+  Evidence: Blue Robotics' BlueBoat Software Setup guide says to set the computer IPv4 address to `192.168.2.1` with subnet mask `255.255.255.0`, and to access BlueOS through `192.168.2.2` or `blueos.local`.
+
+- Observation: BlueOS MAVLink Endpoints support external UDP/TCP access; for a surface-computer UDP listener, BlueOS documentation recommends using the surface computer IP as the endpoint target, for example `192.168.2.1`.
+  Evidence: BlueOS Advanced Usage / MAVLink Endpoints docs say client endpoints for external use are configured to the external IP, with `192.168.2.1` given for connecting to a UDP server on the control-station computer.
 
 ## Decision Log
 
@@ -148,6 +163,14 @@ The first proof should be in ArduPilot SITL, which means Software-In-The-Loop si
   Rationale: The bridge already enforces the safety-critical heartbeat and target-system/component gates. The plugin adds clearer operator feedback, disables controls while disconnected, refuses plain `Send target` unless the current mode is already GUIDED, and asks for confirmation for targets more than 1000 m from the current boat position.
   Date/Author: 2026-06-25 / Codex
 
+- Decision: Implement track capture, vector export, and text location logging inside the QGIS plugin rather than in the MAVLink bridge.
+  Rationale: The bridge already exposes normalized status JSON. Keeping persistence in QGIS lets the operator choose GIS formats and file paths without changing MAVLink command paths or adding bridge-side file permissions.
+  Date/Author: 2026-06-25 / Codex
+
+- Decision: For real BlueBoat field deployment, install the QGIS plugin into the user's QGIS profile and use a dedicated BlueBoat bridge port of 14552.
+  Rationale: A profile install works from the QGIS Plugin Manager without requiring a development launcher or repository environment variables. Port 14552 avoids common Mission Planner/QGroundControl UDP port collisions while remaining easy to configure as a BlueOS MAVLink client endpoint.
+  Date/Author: 2026-06-25 / Codex
+
 ## Outcomes & Retrospective
 
 Milestone 1 is implemented. The repository now has requirements files, placeholder skeleton directories, `scripts/bootstrap_windows.ps1`, `scripts/bootstrap_wsl_ardupilot.sh`, and `scripts/run_sitl_rover_wsl.sh`.
@@ -163,6 +186,12 @@ The Python bridge milestone is implemented. The bridge can be started with `.\sc
 The QGIS plugin skeleton milestone is implemented. The plugin directory has metadata, a `classFactory`, a menu/toolbar action, a dock widget named `ArduBoat Control`, a standard-library bridge HTTP client, a one-second status polling timer, raw JSON display, status labels, and an `ArduBoat Live` EPSG:4326 memory point layer updater. The marker layer has `heading_deg` as an attribute and uses a triangle symbol with data-defined angle rotation. The plugin can be launched for development with `.\scripts\run_qgis_plugin_dev.ps1`, which sets `QGIS_PLUGINPATH` to `qgis_plugin/` before starting QGIS.
 
 The target picking and command-button milestone is implemented in code. The dock now has target controls, WGS84 and project-CRS target readouts, distance and bearing calculations from the current boat status, bridge-backed mode buttons for AUTO, GUIDED, LOITER, HOLD, and MANUAL, and target-send buttons. The map tool captures map clicks in the canvas CRS, transforms them to EPSG:4326, and when the active layer is a vector layer it prefers an active point feature or nearest active-layer vertex before falling back to the map click. `Send target` refuses locally unless the last known mode is GUIDED. `Send target + GUIDED` calls the bridge with `set_guided=true`; the bridge remains responsible for MAVLink heartbeat and target-system safety gates.
+
+The next plugin usability milestone is to retain the operator-visible track. QGIS should maintain an `ArduBoat Track` memory layer with timestamped boat positions, allow exporting that layer to GeoPackage or ESRI Shapefile through a save dialog, provide a start/stop text log button that appends timestamped boat locations to a CSV-style text file, and replace the current triangle live marker with a real arrow symbol so heading is unambiguous.
+
+The track/logging/arrow milestone is implemented. The plugin now creates an `ArduBoat Track` EPSG:4326 memory point layer from connected status samples, stores timestamp, mode, latitude, longitude, heading, and speed fields, and offers `Save track as...` with GeoPackage and ESRI Shapefile options. A checkable `Start text log` button prompts for a `.csv`/`.txt` path and appends timestamped location rows until stopped. The live `ArduBoat Live` marker now uses `assets/boat_arrow.svg` through `QgsSvgMarkerSymbolLayer`, with heading still data-defined from `heading_deg`.
+
+The Panasonic Toughbook / BlueBoat deployment milestone is implemented. The repository now includes a QGIS profile plugin installer, a BlueBoat bridge launcher defaulting to UDP 14552, a BlueBoat network checker for the `192.168.2.0/24` BaseStation network, an optional administrator firewall-rule helper, and a clean deployment bundle generator. User-facing docs describe copying the project to `C:\qgisarduboat`, installing dependencies and the QGIS plugin, configuring BlueOS MAVLink Endpoints to `udp://192.168.2.1:14552`, running the bridge, and validating status before command tests.
 
 ## Context and Orientation
 
@@ -658,8 +687,9 @@ Automated validation:
 - `GET /api/status` returns well-formed JSON even before MAVLink is connected, with `connected: false`.
 - Current milestone validation: `.\scripts\bootstrap_windows.ps1 -CheckOnly` exits 0 and reports installed/missing tools without installing anything.
 - Current environment validation: `.\scripts\bootstrap_windows.ps1 -CheckOnly` reports Git, Python, pip, QGIS LTR, Mission Planner, and MAVProxy as found. Because normal `wsl.exe` returns `Access is denied` on this VM, the checker reports WSL commands must be run from elevated PowerShell.
-- Current bridge and plugin validation: `.\.venv\Scripts\python.exe -m pytest` passes 13 tests. `.\.venv\Scripts\ruff.exe check bridge qgis_plugin tests` reports `All checks passed!` with only cache-write warnings caused by this restricted workspace. `.\.venv\Scripts\python.exe -m bridge.main --help` prints command-line options. A runtime smoke test started `bridge.main` on HTTP port 8766 and `GET /api/status` returned well-formed JSON with `connected: false`. A QGIS Python import check imported the plugin modules successfully after adding QGIS DLL directories, QGIS Python paths, and `QGIS_PREFIX_PATH` explicitly for the shell. A headless `QgsApplication` smoke test created an `ArduBoat Live` layer with one feature and fields `name`, `mode`, `heading_deg`, and `ground_speed_m_s`. A headless Qt smoke test constructed the `ArduBoat Control` dock with no bridge running and confirmed both target-send buttons were disabled.
+- Current bridge and plugin validation: `.\.venv\Scripts\python.exe -m pytest` passes 16 tests. `.\.venv\Scripts\ruff.exe check bridge qgis_plugin tests` reports `All checks passed!` with only cache-write warnings caused by this restricted workspace. `.\.venv\Scripts\python.exe -m bridge.main --help` prints command-line options. A runtime smoke test started `bridge.main` on HTTP port 8766 and `GET /api/status` returned well-formed JSON with `connected: false`. A QGIS Python import check imported the plugin modules successfully after adding QGIS DLL directories, QGIS Python paths, and `QGIS_PREFIX_PATH` explicitly for the shell. A headless `QgsApplication` smoke test created an `ArduBoat Live` layer with one feature and fields `name`, `mode`, `heading_deg`, and `ground_speed_m_s`. A headless Qt smoke test constructed the `ArduBoat Control` dock with no bridge running and confirmed both target-send buttons were disabled. A headless QGIS smoke test for the track/logging milestone created an `ArduBoat Live` arrow marker with `QgsSvgMarkerSymbolLayer`, created an `ArduBoat Track` layer with fields `time_utc`, `mode`, `lat`, `lon`, `heading`, and `speed_ms`, and exported the track to ESRI Shapefile under `tmp/`.
 - Current WSL/SITL validation: `wsl.exe -d Ubuntu-22.04 -- bash /mnt/c/qgisarduboat/scripts/check_wsl_sitl.sh` reports ArduPilot commit `845b9b3c86`, Python MAVLink tooling ok, and MAVProxy 1.8.74. `wsl.exe -d Ubuntu-22.04 -- bash /mnt/c/qgisarduboat/scripts/build_sitl_rover_wsl.sh` builds `bin/ardurover` successfully.
+- Current deployment validation: `.\scripts\install_qgis_plugin.ps1 -CheckOnly` reports the QGIS profile destination under `%APPDATA%\QGIS\QGIS3\profiles\default\python\plugins\qgis_arduboat`. `.\scripts\add_blueboat_firewall_rule.ps1 -CheckOnly` reports that it would add an inbound UDP 14552 rule for `192.168.2.0/24`. `.\scripts\check_blueboat_network.ps1` runs without exception and, on this VM with no BlueBoat connected, correctly reports no local `192.168.2.1` adapter and no BlueOS response. `.\scripts\new_deployment_bundle.ps1 -CheckOnly` reports it would package 57 files, and `.\scripts\new_deployment_bundle.ps1` created `tmp\qgisarduboat_blueboat_deployment_20260625_170412.zip`. A PowerShell parser check over `scripts\*.ps1` reports `PowerShell script syntax ok`.
 
 Manual SITL acceptance:
 
@@ -683,7 +713,7 @@ All setup scripts must be safe to rerun. They should check before installing. If
 
 The QGIS plugin should be loadable from the repository path via `QGIS_PLUGINPATH` during development. It should also be copyable into the normal QGIS user plugin directory. If the plugin fails to load, the user can disable it from the QGIS Plugin Manager and continue using QGIS normally.
 
-The bridge should exit cleanly on Ctrl+C. If UDP ports are already in use, print which port failed and suggest changing `--connect` or stopping the other process.
+The bridge should exit cleanly on Ctrl+C. If UDP ports are already in use, print which port failed and suggest changing `--connect` or stopping the other process. If Mission Planner has already claimed the default bridge port 14551, use a matching alternate pair, for example start SITL with `BRIDGE_PORT=14552 bash scripts/run_sitl_rover_wsl.sh` and start the bridge with `.\scripts\run_bridge.ps1 -Connect udpin:0.0.0.0:14552`.
 
 The SITL script should not delete an existing `~/ardupilot` clone. If the clone exists, update submodules rather than recloning. If dependencies fail, the script should point the user to rerun the ArduPilot prerequisite script manually inside WSL.
 
@@ -701,12 +731,19 @@ Expected deliverables after implementation:
 - `scripts/run_sitl_rover_wsl.sh`
 - `scripts/run_bridge.ps1`
 - `scripts/run_qgis_plugin_dev.ps1`
+- `scripts/run_blueboat_bridge.ps1`
+- `scripts/check_blueboat_network.ps1`
+- `scripts/add_blueboat_firewall_rule.ps1`
+- `scripts/install_qgis_plugin.ps1`
+- `scripts/new_deployment_bundle.ps1`
 - `bridge/` Python package
 - `qgis_plugin/qgis_arduboat/` QGIS plugin
 - `tests/` automated tests
 - `docs/windows_setup.md`
+- `docs/operator_quickstart.md`
 - `docs/sitl_test_workflow.md`
 - `docs/real_boat_workflow.md`
+- `docs/toughbook_blueboat_deployment.md`
 
 Useful command summary for the final README:
 
@@ -716,6 +753,9 @@ Useful command summary for the final README:
     .\.venv\Scripts\python.exe -m pytest
     .\.venv\Scripts\python.exe -m bridge.main --connect udpin:0.0.0.0:14551
     .\scripts\run_qgis_plugin_dev.ps1
+    .\scripts\install_qgis_plugin.ps1
+    .\scripts\check_blueboat_network.ps1
+    .\scripts\run_blueboat_bridge.ps1
 
     # WSL Ubuntu 22.04 on this VM; use elevated PowerShell if normal wsl.exe returns Access is denied
     wsl.exe -d Ubuntu-22.04 -- bash /mnt/c/qgisarduboat/scripts/check_wsl_sitl.sh
