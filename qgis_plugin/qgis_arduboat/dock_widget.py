@@ -18,6 +18,7 @@ from qgis.PyQt.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QPlainTextEdit,
     QVBoxLayout,
     QWidget,
@@ -113,7 +114,9 @@ class ArduBoatDockWidget(QDockWidget):
         self.last_warning.setText("Target cleared")
 
     def _build_ui(self) -> None:
-        container = QWidget(self)
+        scroll_area = QScrollArea(self)
+        scroll_area.setWidgetResizable(True)
+        container = QWidget(scroll_area)
         layout = QVBoxLayout(container)
 
         url_row = QHBoxLayout()
@@ -146,7 +149,8 @@ class ArduBoatDockWidget(QDockWidget):
         layout.addWidget(QLabel("Raw status"))
         layout.addWidget(self.raw_status, 1)
 
-        self.setWidget(container)
+        scroll_area.setWidget(container)
+        self.setWidget(scroll_area)
 
     def _build_status_group(self) -> QGroupBox:
         group = QGroupBox("Status")

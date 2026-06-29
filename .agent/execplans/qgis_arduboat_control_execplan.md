@@ -28,6 +28,7 @@ The first proof should be in ArduPilot SITL, which means Software-In-The-Loop si
 - [x] (2026-06-25 17:05 Europe/Vienna) Write user documentation for Panasonic Toughbook / BlueBoat deployment and first real-hardware validation.
 - [x] (2026-06-25 17:20 Europe/Vienna) Add an operator quickstart that summarizes SITL startup, Toughbook/BlueBoat startup, and acceptance checks.
 - [x] (2026-06-25 17:35 Europe/Vienna) Add MIT license file and declare MIT in README and QGIS plugin metadata.
+- [x] (2026-06-29 13:30 Europe/Vienna) Add a scrollable QGIS dock panel, bump plugin metadata to `0.2.1`, and build a tracked-file test release bundle.
 - [ ] Validate end-to-end with Rover SITL, Mission Planner, bridge, and QGIS.
 
 ## Surprises & Discoveries
@@ -91,6 +92,9 @@ The first proof should be in ArduPilot SITL, which means Software-In-The-Loop si
 
 - Observation: Headless QGIS validation can export the track layer to ESRI Shapefile in this sandbox, but GeoPackage export from the standalone headless process hits SQLite disk I/O errors here.
   Evidence: The QGIS smoke test reported `export_exists True` for a Shapefile under `tmp/`, while the equivalent GeoPackage attempt failed with `sqlite3_exec(COMMIT) failed: disk I/O error`. This appears tied to the managed sandbox and standalone QGIS environment; the plugin still exposes GeoPackage for normal QGIS GUI use.
+
+- Observation: The deployment bundle script's old recursive scan would include untracked local QGIS and shapefile test artifacts.
+  Evidence: With `ardupilot_Qgis_Template_Project.qgz` and `test.*` files untracked, `.\scripts\new_deployment_bundle.ps1 -CheckOnly` reported 59 files while `git ls-files` reported 54 tracked files.
 
 - Observation: Blue Robotics BlueBoat uses the `192.168.2.0/24` topside network by default, with the operator computer configured as `192.168.2.1` and BlueOS reachable at `192.168.2.2` or `blueos.local`.
   Evidence: Blue Robotics' BlueBoat Software Setup guide says to set the computer IPv4 address to `192.168.2.1` with subnet mask `255.255.255.0`, and to access BlueOS through `192.168.2.2` or `blueos.local`.
@@ -172,6 +176,14 @@ The first proof should be in ArduPilot SITL, which means Software-In-The-Loop si
   Rationale: A profile install works from the QGIS Plugin Manager without requiring a development launcher or repository environment variables. Port 14552 avoids common Mission Planner/QGroundControl UDP port collisions while remaining easy to configure as a BlueOS MAVLink client endpoint.
   Date/Author: 2026-06-25 / Codex
 
+- Decision: Wrap the QGIS dock content in a resizable `QScrollArea`.
+  Rationale: The operator panel has grown beyond the height of smaller laptop screens. A scroll area preserves the existing control order and safety gating while making every control reachable when the dock is short.
+  Date/Author: 2026-06-29 / Codex
+
+- Decision: Prefer `git ls-files` when building deployment bundles from a Git checkout.
+  Rationale: Release/test-release bundles should contain repository files, not local QGIS projects, logs, or shapefile artifacts left over from testing. The script still falls back to the previous recursive scan when Git is unavailable.
+  Date/Author: 2026-06-29 / Codex
+
 ## Outcomes & Retrospective
 
 Milestone 1 is implemented. The repository now has requirements files, placeholder skeleton directories, `scripts/bootstrap_windows.ps1`, `scripts/bootstrap_wsl_ardupilot.sh`, and `scripts/run_sitl_rover_wsl.sh`.
@@ -195,6 +207,10 @@ The track/logging/arrow milestone is implemented. The plugin now creates an `Ard
 The Panasonic Toughbook / BlueBoat deployment milestone is implemented. The repository now includes a QGIS profile plugin installer, a BlueBoat bridge launcher defaulting to UDP 14552, a BlueBoat network checker for the `192.168.2.0/24` BaseStation network, an optional administrator firewall-rule helper, and a clean deployment bundle generator. User-facing docs describe copying the project to `C:\qgisarduboat`, installing dependencies and the QGIS plugin, configuring BlueOS MAVLink Endpoints to `udp://192.168.2.1:14552`, running the bridge, and validating status before command tests.
 
 The repository license is now MIT. `LICENSE` contains the standard MIT license text, `README.md` links to it, and the QGIS plugin metadata declares `license=MIT`.
+
+The QGIS dock usability fix is implemented. `ArduBoat Control` now uses a resizable scroll area as the dock's top-level widget, so the bridge URL, status, track, target, command, warning, and raw-status controls remain reachable on shorter QGIS panels. The QGIS plugin metadata version is now `0.2.1`.
+
+The deployment bundle generator now uses Git tracked files when it runs inside this repository, with the old recursive scan retained as a fallback outside Git. A local test release bundle was created at `tmp\qgisarduboat_blueboat_deployment_v0.2.1-test.zip`; it contains 54 tracked entries and excludes the local untracked QGIS/shapefile test artifacts.
 
 ## Context and Orientation
 
@@ -690,9 +706,9 @@ Automated validation:
 - `GET /api/status` returns well-formed JSON even before MAVLink is connected, with `connected: false`.
 - Current milestone validation: `.\scripts\bootstrap_windows.ps1 -CheckOnly` exits 0 and reports installed/missing tools without installing anything.
 - Current environment validation: `.\scripts\bootstrap_windows.ps1 -CheckOnly` reports Git, Python, pip, QGIS LTR, Mission Planner, and MAVProxy as found. Because normal `wsl.exe` returns `Access is denied` on this VM, the checker reports WSL commands must be run from elevated PowerShell.
-- Current bridge and plugin validation: `.\.venv\Scripts\python.exe -m pytest` passes 16 tests. `.\.venv\Scripts\ruff.exe check bridge qgis_plugin tests` reports `All checks passed!` with only cache-write warnings caused by this restricted workspace. `.\.venv\Scripts\python.exe -m bridge.main --help` prints command-line options. A runtime smoke test started `bridge.main` on HTTP port 8766 and `GET /api/status` returned well-formed JSON with `connected: false`. A QGIS Python import check imported the plugin modules successfully after adding QGIS DLL directories, QGIS Python paths, and `QGIS_PREFIX_PATH` explicitly for the shell. A headless `QgsApplication` smoke test created an `ArduBoat Live` layer with one feature and fields `name`, `mode`, `heading_deg`, and `ground_speed_m_s`. A headless Qt smoke test constructed the `ArduBoat Control` dock with no bridge running and confirmed both target-send buttons were disabled. A headless QGIS smoke test for the track/logging milestone created an `ArduBoat Live` arrow marker with `QgsSvgMarkerSymbolLayer`, created an `ArduBoat Track` layer with fields `time_utc`, `mode`, `lat`, `lon`, `heading`, and `speed_ms`, and exported the track to ESRI Shapefile under `tmp/`.
+- Current bridge and plugin validation: `.\.venv\Scripts\python.exe -m pytest` passes 16 tests. `.\.venv\Scripts\ruff.exe check bridge qgis_plugin tests` reports `All checks passed!` with only cache-write warnings caused by this restricted workspace. `.\.venv\Scripts\python.exe -m bridge.main --help` prints command-line options. A runtime smoke test started `bridge.main` on HTTP port 8766 and `GET /api/status` returned well-formed JSON with `connected: false`. A QGIS Python import check imported the plugin modules successfully after adding QGIS DLL directories, QGIS Python paths, and `QGIS_PREFIX_PATH` explicitly for the shell. A headless `QgsApplication` smoke test created an `ArduBoat Live` layer with one feature and fields `name`, `mode`, `heading_deg`, and `ground_speed_m_s`. A headless Qt smoke test constructed the `ArduBoat Control` dock with no bridge running and confirmed both target-send buttons were disabled. A 2026-06-29 headless QGIS/PyQt smoke test printed `dock scroll smoke ok`, confirming the dock's top-level widget is a resizable `QScrollArea` and the disconnected target-send buttons remain disabled. A headless QGIS smoke test for the track/logging milestone created an `ArduBoat Live` arrow marker with `QgsSvgMarkerSymbolLayer`, created an `ArduBoat Track` layer with fields `time_utc`, `mode`, `lat`, `lon`, `heading`, and `speed_ms`, and exported the track to ESRI Shapefile under `tmp/`.
 - Current WSL/SITL validation: `wsl.exe -d Ubuntu-22.04 -- bash /mnt/c/qgisarduboat/scripts/check_wsl_sitl.sh` reports ArduPilot commit `845b9b3c86`, Python MAVLink tooling ok, and MAVProxy 1.8.74. `wsl.exe -d Ubuntu-22.04 -- bash /mnt/c/qgisarduboat/scripts/build_sitl_rover_wsl.sh` builds `bin/ardurover` successfully.
-- Current deployment validation: `.\scripts\install_qgis_plugin.ps1 -CheckOnly` reports the QGIS profile destination under `%APPDATA%\QGIS\QGIS3\profiles\default\python\plugins\qgis_arduboat`. `.\scripts\add_blueboat_firewall_rule.ps1 -CheckOnly` reports that it would add an inbound UDP 14552 rule for `192.168.2.0/24`. `.\scripts\check_blueboat_network.ps1` runs without exception and, on this VM with no BlueBoat connected, correctly reports no local `192.168.2.1` adapter and no BlueOS response. `.\scripts\new_deployment_bundle.ps1 -CheckOnly` reports it would package 57 files, and `.\scripts\new_deployment_bundle.ps1` created `tmp\qgisarduboat_blueboat_deployment_20260625_170412.zip`. A PowerShell parser check over `scripts\*.ps1` reports `PowerShell script syntax ok`.
+- Current deployment validation: `.\scripts\install_qgis_plugin.ps1 -CheckOnly` reports the QGIS profile destination under `%APPDATA%\QGIS\QGIS3\profiles\default\python\plugins\qgis_arduboat`. `.\scripts\add_blueboat_firewall_rule.ps1 -CheckOnly` reports that it would add an inbound UDP 14552 rule for `192.168.2.0/24`. `.\scripts\check_blueboat_network.ps1` runs without exception and, on this VM with no BlueBoat connected, correctly reports no local `192.168.2.1` adapter and no BlueOS response. `.\scripts\new_deployment_bundle.ps1 -CheckOnly` now reports `Source files: git tracked files` and would package 54 files. `.\scripts\new_deployment_bundle.ps1 -OutputPath .\tmp\qgisarduboat_blueboat_deployment_v0.2.1-test.zip` created the test release bundle. Zip inspection reports 54 entries and no `ardupilot_Qgis_Template_Project.qgz`, `test.*`, or `logs/` entries. A PowerShell parser check over `scripts\*.ps1` reports `PowerShell script syntax ok`.
 
 Manual SITL acceptance:
 

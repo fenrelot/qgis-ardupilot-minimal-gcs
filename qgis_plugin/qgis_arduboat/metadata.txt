@@ -2,7 +2,7 @@
 name=ArduBoat Control
 description=Auxiliary QGIS operator map for ArduPilot Rover and Boat telemetry.
 about=Shows bridge status and a live ArduPilot Rover/Boat marker while Mission Planner remains the primary ground control station.
-version=0.2.0
+version=0.2.1
 qgisMinimumVersion=3.44
 author=QGIS ArduBoat Prototype
 email=

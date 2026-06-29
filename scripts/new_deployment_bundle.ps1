@@ -84,10 +84,52 @@ function Get-IncludedFiles {
     }
 }
 
+function Get-GitTrackedFiles {
+    $git = Get-Command git -ErrorAction SilentlyContinue
+    if (-not $git) {
+        return @()
+    }
+
+    try {
+        $gitPath = $git.Source
+        if ([string]::IsNullOrWhiteSpace($gitPath)) {
+            $gitPath = $git.Path
+        }
+        $relativePaths = & $gitPath -C $RepoRoot ls-files
+        if ($LASTEXITCODE -ne 0) {
+            return @()
+        }
+    }
+    catch {
+        return @()
+    }
+
+    foreach ($relativePath in $relativePaths) {
+        if ([string]::IsNullOrWhiteSpace($relativePath)) {
+            continue
+        }
+        $localRelativePath = $relativePath -replace "/", [System.IO.Path]::DirectorySeparatorChar
+        $fullPath = Join-Path $RepoRoot $localRelativePath
+        if (Test-Path -LiteralPath $fullPath -PathType Leaf) {
+            $item = Get-Item -LiteralPath $fullPath
+            if (-not (Test-IsExcludedPath $item)) {
+                $item
+            }
+        }
+    }
+}
+
 Write-Host "Working directory: $RepoRoot"
 Write-Host "Output zip: $ResolvedOutputPath"
 
-$files = @(Get-IncludedFiles -Root $RepoRoot)
+$files = @(Get-GitTrackedFiles)
+if ($files.Count -gt 0) {
+    Write-Host "Source files: git tracked files"
+}
+else {
+    $files = @(Get-IncludedFiles -Root $RepoRoot)
+    Write-Host "Source files: recursive scan fallback"
+}
 
 if ($CheckOnly) {
     Write-Host "CheckOnly: would package $($files.Count) files."
